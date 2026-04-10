@@ -556,7 +556,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("\nAvailable days for hourly forecast:");
             for (idx, date) in sorted_dates.iter().enumerate() {
-                let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+                let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
                 let day_name = parsed.format("%A, %d %B %Y").to_string();
                 println!("  [{}] {}", idx + 1, day_name);
             }
@@ -579,7 +579,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let min_temp = temps.iter().cloned().fold(f64::INFINITY, f64::min);
             let max_temp = temps.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
 
-            let parsed_date = NaiveDate::parse_from_str(&selected_date, "%Y-%m-%d").unwrap();
+            let parsed_date = NaiveDate::parse_from_str(&selected_date, "%Y-%m-%d")?;
             println!(
                 "\n{}",
                 format!(
@@ -603,7 +603,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let feel = feels[i];
                 let temp_plain = format!("{:.1}°C", temp);
                 let temp_padded = pad_number(&temp_plain);
-                // No color on temperature number (default terminal color)
+                // No colour on temperature number (default terminal colour)
                 let temp_no_color = temp_padded;  // just the padded string
                 let bar = draw_temp_bar_compact(temp, min_temp, max_temp);
                 let temp_display = format!("{} {}", temp_no_color, bar);
