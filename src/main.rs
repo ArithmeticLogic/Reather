@@ -467,12 +467,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 city_query
             );
             let geocode_response: GeocodingResponse = reqwest::get(&geocode_url).await?.json().await?;
-            let location = geocode_response
-                .results
-                .as_ref()
-                .and_then(|r| r.first())
-                .ok_or("Could not find location")?
-                .clone();
+
+            // Try to get the first result; if not found, ask again
+            let location = match geocode_response.results.and_then(|r| r.into_iter().next()) {
+                Some(loc) => loc,
+                None => {
+                    println!("Location not found. Please try again.\n");
+                    continue;
+                }
+            };
+
             println!(
                 "Found: {}, {} ({:.2}, {:.2})\n",
                 location.name.green(),
