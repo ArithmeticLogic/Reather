@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone};
 use colored::*;
 use reqwest;
 use serde::Deserialize;
@@ -217,15 +217,16 @@ fn center_to_width(s: &str, target_width: usize) -> String {
     }
 }
 
-// --- Parse ISO time string to local DateTime ---
+// --- Parse ISO time string to local DateTime (FIXED: no UTC double-conversion) ---
 fn parse_time_to_local(s: &str) -> DateTime<Local> {
-    DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Local))
-        .or_else(|_| {
-            NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
-                .map(|naive| Utc.from_utc_datetime(&naive).with_timezone(&Local))
-        })
-        .unwrap_or_else(|e| panic!("Failed to parse time '{}': {}", s, e))
+    // First try parsing with explicit offset (e.g. "+02:00")
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return dt.with_timezone(&Local);
+    }
+    // Otherwise, assume the naive string is already in the local timezone
+    let naive = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M")
+        .unwrap_or_else(|e| panic!("Failed to parse time '{}': {}", s, e));
+    Local.from_local_datetime(&naive).single().unwrap()
 }
 
 // --- Group hourly data by date ---
@@ -262,7 +263,7 @@ fn group_hourly_by_day(
     map
 }
 
-// --- Print Hourly Table (all columns centered) ---
+// --- Print Hourly Table (all columns centered, headers bold) ---
 fn print_hourly_table(rows: &[Vec<String>]) {
     if rows.is_empty() {
         return;
@@ -294,11 +295,11 @@ fn print_hourly_table(rows: &[Vec<String>]) {
     }
     println!("┐");
 
-    // Header row
+    // Header row (bold)
     print!("│");
     for (i, header) in headers.iter().enumerate() {
         let content_width = padded_widths[i];
-        let centered = center_to_width(header, content_width);
+        let centered = center_to_width(&header.bold().to_string(), content_width);
         print!("{}", centered);
         if i < headers.len() - 1 {
             print!("│");
@@ -351,7 +352,7 @@ fn print_hourly_table(rows: &[Vec<String>]) {
     println!("┘");
 }
 
-// --- Print Daily Table (all columns centered) ---
+// --- Print Daily Table (all columns centered, headers bold) ---
 fn print_daily_table(rows: &[Vec<String>]) {
     if rows.is_empty() {
         return;
@@ -383,11 +384,11 @@ fn print_daily_table(rows: &[Vec<String>]) {
     }
     println!("┐");
 
-    // Header row
+    // Header row (bold)
     print!("│");
     for (i, header) in headers.iter().enumerate() {
         let content_width = padded_widths[i];
-        let centered = center_to_width(header, content_width);
+        let centered = center_to_width(&header.bold().to_string(), content_width);
         print!("{}", centered);
         if i < headers.len() - 1 {
             print!("│");
