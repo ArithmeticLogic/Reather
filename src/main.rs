@@ -468,7 +468,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             let geocode_response: GeocodingResponse = reqwest::get(&geocode_url).await?.json().await?;
 
-            // Try to get the first result; if not found, ask again
+            // If location not found, ask again
             let location = match geocode_response.results.and_then(|r| r.into_iter().next()) {
                 Some(loc) => loc,
                 None => {
@@ -503,117 +503,133 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let weather = current_weather.as_ref().unwrap();
 
-        print!("Hourly (h) or Daily (d) forecast? [h/d]: ");
-        io::stdout().flush()?;
-        let mut choice = String::new();
-        io::stdin().read_line(&mut choice)?;
-        let choice = choice.trim().to_lowercase();
+        // --- FIX: loop until valid forecast type is entered ---
+        let forecast_type = loop {
+            print!("Hourly (h) or Daily (d) forecast? [h/d]: ");
+            io::stdout().flush()?;
+            let mut choice = String::new();
+            io::stdin().read_line(&mut choice)?;
+            let choice = choice.trim().to_lowercase();
+            if choice == "h" || choice == "d" {
+                break choice;
+            } else {
+                println!("Invalid input. Please enter 'h' for hourly or 'd' for daily.\n");
+            }
+        };
 
-        if choice == "d" {
+        if forecast_type == "d" {
             let daily = &weather.daily;
-            println!(
-                "\n{}",
-                format!("7-Day Forecast for {}, {}", loc.name, loc.country)
-                    .bold()
-                    .underline()
-            );
-            println!();
+            // Safety: ensure there is at least one day
+            if daily.time.is_empty() {
+                println!("No daily forecast data available.\n");
+            } else {
+                println!(
+                    "\n{}",
+                    format!("7-Day Forecast for {}, {}", loc.name, loc.country)
+                        .bold()
+                        .underline()
+                );
+                println!();
 
-            let mut rows = Vec::new();
-            let dates: Vec<NaiveDate> = daily
-                .time
-                .iter()
-                .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap())
-                .collect();
+                let mut rows = Vec::new();
+                let dates: Vec<NaiveDate> = daily
+                    .time
+                    .iter()
+                    .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap())
+                    .collect();
 
-            for i in 0..daily.time.len() {
-                let date_str = dates[i].format("%a %d %b").to_string();
-                let weather_text = get_weather_text(daily.weathercode[i]);
-                let weather_colour = get_weather_colour(daily.weathercode[i]);
-                let coloured_weather = weather_text.color(weather_colour).to_string();
-                let min = format_temp(daily.temperature_2m_min[i], Color::Green);
-                let max = format_temp(daily.temperature_2m_max[i], Color::Red);
-                let feels = format_feels(daily.apparent_temperature_max[i]);
-                let rain = format_rain(daily.precipitation_probability_max[i].unwrap_or(0));
-                rows.push(vec![date_str, coloured_weather, min, max, feels, rain]);
-            }
-
-            print_daily_table(&rows);
-        } else {
-            let hourly = &weather.hourly;
-            let groups = group_hourly_by_day(
-                &hourly.time,
-                &hourly.temperature_2m,
-                &hourly.apparent_temperature,
-                &hourly.weathercode,
-                &hourly.precipitation_probability,
-                &hourly.windspeed_10m,
-            );
-
-            let mut sorted_dates: Vec<String> = groups.keys().cloned().collect();
-            sorted_dates.sort();
-            sorted_dates.truncate(7);
-
-            println!("\nAvailable days for hourly forecast:");
-            for (idx, date) in sorted_dates.iter().enumerate() {
-                let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d")?;
-                let day_name = parsed.format("%A, %d %B %Y").to_string();
-                println!("  [{}] {}", idx + 1, day_name);
-            }
-
-            let selected_date = loop {
-                print!("\nEnter day number (1-{}): ", sorted_dates.len());
-                io::stdout().flush()?;
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
-                let input = input.trim();
-                if let Ok(num) = input.parse::<usize>() {
-                    if num >= 1 && num <= sorted_dates.len() {
-                        break sorted_dates[num - 1].clone();
-                    }
+                for i in 0..daily.time.len() {
+                    let date_str = dates[i].format("%a %d %b").to_string();
+                    let weather_text = get_weather_text(daily.weathercode[i]);
+                    let weather_colour = get_weather_colour(daily.weathercode[i]);
+                    let coloured_weather = weather_text.color(weather_colour).to_string();
+                    let min = format_temp(daily.temperature_2m_min[i], Color::Green);
+                    let max = format_temp(daily.temperature_2m_max[i], Color::Red);
+                    let feels = format_feels(daily.apparent_temperature_max[i]);
+                    let rain = format_rain(daily.precipitation_probability_max[i].unwrap_or(0));
+                    rows.push(vec![date_str, coloured_weather, min, max, feels, rain]);
                 }
-                println!("Invalid input. Please enter a number between 1 and {}.", sorted_dates.len());
-            };
 
-            let (hours, temps, feels, codes, precip, wind) = &groups[&selected_date];
-            let min_temp = temps.iter().cloned().fold(f64::INFINITY, f64::min);
-            let max_temp = temps.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-
-            let parsed_date = NaiveDate::parse_from_str(&selected_date, "%Y-%m-%d")?;
-            println!(
-                "\n{}",
-                format!(
-                    "Hourly Forecast for {}, {} – {}",
-                    loc.name,
-                    loc.country,
-                    parsed_date.format("%A, %d %B %Y")
-                )
-                    .bold()
-                    .underline()
-            );
-            println!();
-
-            let mut rows = Vec::new();
-            for i in 0..hours.len() {
-                let hour = hours[i].clone();
-                let weather_text = get_weather_text(codes[i]);
-                let weather_colour = get_weather_colour(codes[i]);
-                let coloured_weather = weather_text.color(weather_colour).to_string();
-                let temp = temps[i];
-                let feel = feels[i];
-                let temp_plain = format!("{:.1}°C", temp);
-                let temp_padded = pad_number(&temp_plain);
-                // No colour on temperature number (default terminal colour)
-                let temp_no_color = temp_padded;  // just the padded string
-                let bar = draw_temp_bar_compact(temp, min_temp, max_temp);
-                let temp_display = format!("{} {}", temp_no_color, bar);
-                let feel_str = format_feels(feel);
-                let rain_str = format_rain(precip[i]);
-                let wind_str = format_wind(wind[i]);
-                rows.push(vec![hour, coloured_weather, temp_display, feel_str, rain_str, wind_str]);
+                print_daily_table(&rows);
             }
+        } else { // forecast_type == "h"
+            let hourly = &weather.hourly;
+            if hourly.time.is_empty() {
+                println!("No hourly forecast data available.\n");
+            } else {
+                let groups = group_hourly_by_day(
+                    &hourly.time,
+                    &hourly.temperature_2m,
+                    &hourly.apparent_temperature,
+                    &hourly.weathercode,
+                    &hourly.precipitation_probability,
+                    &hourly.windspeed_10m,
+                );
 
-            print_hourly_table(&rows);
+                let mut sorted_dates: Vec<String> = groups.keys().cloned().collect();
+                sorted_dates.sort();
+                sorted_dates.truncate(7);
+
+                println!("\nAvailable days for hourly forecast:");
+                for (idx, date) in sorted_dates.iter().enumerate() {
+                    let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+                    let day_name = parsed.format("%A, %d %B %Y").to_string();
+                    println!("  [{}] {}", idx + 1, day_name);
+                }
+
+                let selected_date = loop {
+                    print!("\nEnter day number (1-{}): ", sorted_dates.len());
+                    io::stdout().flush()?;
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input)?;
+                    let input = input.trim();
+                    if let Ok(num) = input.parse::<usize>() {
+                        if num >= 1 && num <= sorted_dates.len() {
+                            break sorted_dates[num - 1].clone();
+                        }
+                    }
+                    println!("Invalid input. Please enter a number between 1 and {}.", sorted_dates.len());
+                };
+
+                let (hours, temps, feels, codes, precip, wind) = &groups[&selected_date];
+                let min_temp = temps.iter().cloned().fold(f64::INFINITY, f64::min);
+                let max_temp = temps.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+                let parsed_date = NaiveDate::parse_from_str(&selected_date, "%Y-%m-%d").unwrap();
+                println!(
+                    "\n{}",
+                    format!(
+                        "Hourly Forecast for {}, {} – {}",
+                        loc.name,
+                        loc.country,
+                        parsed_date.format("%A, %d %B %Y")
+                    )
+                        .bold()
+                        .underline()
+                );
+                println!();
+
+                let mut rows = Vec::new();
+                for i in 0..hours.len() {
+                    let hour = hours[i].clone();
+                    let weather_text = get_weather_text(codes[i]);
+                    let weather_colour = get_weather_colour(codes[i]);
+                    let coloured_weather = weather_text.color(weather_colour).to_string();
+                    let temp = temps[i];
+                    let feel = feels[i];
+                    let temp_plain = format!("{:.1}°C", temp);
+                    let temp_padded = pad_number(&temp_plain);
+                    let temp_no_color = temp_padded;
+                    let bar = draw_temp_bar_compact(temp, min_temp, max_temp);
+                    let temp_display = format!("{} {}", temp_no_color, bar);
+                    let feel_str = format_feels(feel);
+                    let rain_str = format_rain(precip[i]);
+                    let wind_str = format_wind(wind[i]);
+                    rows.push(vec![hour, coloured_weather, temp_display, feel_str, rain_str, wind_str]);
+                }
+
+                print_hourly_table(&rows);
+            }
         }
 
         // Main menu loop
